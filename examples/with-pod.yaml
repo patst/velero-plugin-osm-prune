@@ -1,0 +1,256 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: psbackup
+  labels:
+    openservicemesh.io/monitored-by: osm
+  annotations:
+    openservicemesh.io/sidecar-injection: 'true'
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ps-velero-test-79f7978678-2c8px
+  generateName: ps-velero-test-79f7978678-
+  namespace: psbackup
+  labels:
+    app: ps-velero-test
+    osm-proxy-uuid: 08ea02ce-99f4-4aec-8f16-d4807ae436d0
+    pod-template-hash: 79f7978678
+  annotations:
+    backup.velero.io/backup-volumes: volume
+    seccomp.security.alpha.kubernetes.io/pod: runtime/default
+spec:
+  volumes:
+    - name: volume
+      persistentVolumeClaim:
+        claimName: ps-volume
+    - name: kube-api-access-gpljs
+      projected:
+        sources:
+          - serviceAccountToken:
+              expirationSeconds: 3607
+              path: token
+          - configMap:
+              name: kube-root-ca.crt
+              items:
+                - key: ca.crt
+                  path: ca.crt
+          - downwardAPI:
+              items:
+                - path: namespace
+                  fieldRef:
+                    apiVersion: v1
+                    fieldPath: metadata.namespace
+        defaultMode: 420
+    - name: envoy-bootstrap-config-volume
+      secret:
+        secretName: envoy-bootstrap-config-08ea02ce-99f4-4aec-8f16-d4807ae436d0
+        defaultMode: 420
+  initContainers:
+    - name: osm-init
+      image: mcr.microsoft.com/oss/openservicemesh/init:v1.1.1
+      command:
+        - /bin/sh
+      args:
+        - '-c'
+        - >
+          iptables-restore --noflush <<EOF
+
+          # OSM sidecar interception rules
+
+          *nat
+
+          :OSM_PROXY_INBOUND - [0:0]
+
+          :OSM_PROXY_IN_REDIRECT - [0:0]
+
+          :OSM_PROXY_OUTBOUND - [0:0]
+
+          :OSM_PROXY_OUT_REDIRECT - [0:0]
+
+          -A OSM_PROXY_IN_REDIRECT -p tcp -j REDIRECT --to-port 15003
+
+          -A PREROUTING -p tcp -j OSM_PROXY_INBOUND
+
+          -A OSM_PROXY_INBOUND -p tcp --dport 15010 -j RETURN
+
+          -A OSM_PROXY_INBOUND -p tcp --dport 15901 -j RETURN
+
+          -A OSM_PROXY_INBOUND -p tcp --dport 15902 -j RETURN
+
+          -A OSM_PROXY_INBOUND -p tcp --dport 15903 -j RETURN
+
+          -A OSM_PROXY_INBOUND -p tcp --dport 15904 -j RETURN
+
+          -A OSM_PROXY_INBOUND -p tcp -j OSM_PROXY_IN_REDIRECT
+
+          -A OSM_PROXY_OUT_REDIRECT -p tcp -j REDIRECT --to-port 15001
+
+          -A OSM_PROXY_OUT_REDIRECT -p tcp --dport 15000 -j ACCEPT
+
+          -A OUTPUT -p tcp -j OSM_PROXY_OUTBOUND
+
+          -A OSM_PROXY_OUTBOUND -o lo ! -d 127.0.0.1/32 -m owner --uid-owner
+          1500 -j OSM_PROXY_IN_REDIRECT
+
+          -A OSM_PROXY_OUTBOUND -o lo -m owner ! --uid-owner 1500 -j RETURN
+
+          -A OSM_PROXY_OUTBOUND -m owner --uid-owner 1500 -j RETURN
+
+          -A OSM_PROXY_OUTBOUND -d 127.0.0.1/32 -j RETURN
+
+          -A OSM_PROXY_OUTBOUND -p tcp --match multiport --dports 587,1344 -j
+          RETURN
+
+          -A OSM_PROXY_OUTBOUND -j OSM_PROXY_OUT_REDIRECT
+
+          COMMIT
+
+          EOF
+      env:
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: status.podIP
+      resources: {}
+      volumeMounts:
+        - name: kube-api-access-gpljs
+          readOnly: true
+          mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+      terminationMessagePath: /dev/termination-log
+      terminationMessagePolicy: File
+      imagePullPolicy: IfNotPresent
+      securityContext:
+        capabilities:
+          add:
+            - NET_ADMIN
+        privileged: false
+        runAsUser: 0
+        runAsNonRoot: false
+  containers:
+    - name: test
+      image: ubuntu:latest
+      command:
+        - /bin/sh
+        - '-c'
+        - sleep 3600
+      workingDir: /var/run/exporter
+      resources:
+        limits:
+          cpu: 100m
+          memory: 128Mi
+        requests:
+          cpu: 100m
+          memory: 128Mi
+      volumeMounts:
+        - name: volume
+          mountPath: /mnt/ps
+        - name: kube-api-access-gpljs
+          readOnly: true
+          mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+      terminationMessagePath: /dev/termination-log
+      terminationMessagePolicy: File
+      imagePullPolicy: IfNotPresent
+      securityContext:
+        readOnlyRootFilesystem: true
+    - name: envoy
+      image: mcr.microsoft.com/oss/envoyproxy/envoy:v1.19.3
+      command:
+        - envoy
+      args:
+        - '--log-level'
+        - error
+        - '--config-path'
+        - /etc/envoy/bootstrap.yaml
+        - '--service-cluster'
+        - default.
+      ports:
+        - name: proxy-admin
+          containerPort: 15000
+          protocol: TCP
+        - name: proxy-inbound
+          containerPort: 15003
+          protocol: TCP
+        - name: proxy-metrics
+          containerPort: 15010
+          protocol: TCP
+      env:
+        - name: POD_UID
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.uid
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.namespace
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: status.podIP
+        - name: SERVICE_ACCOUNT
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: spec.serviceAccountName
+      resources:
+        limits:
+          memory: 1Gi
+        requests:
+          cpu: 50m
+          memory: 1Gi
+      volumeMounts:
+        - name: envoy-bootstrap-config-volume
+          readOnly: true
+          mountPath: /etc/envoy
+        - name: kube-api-access-gpljs
+          readOnly: true
+          mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+      terminationMessagePath: /dev/termination-log
+      terminationMessagePolicy: File
+      imagePullPolicy: IfNotPresent
+      securityContext:
+        runAsUser: 1500
+  restartPolicy: Always
+  terminationGracePeriodSeconds: 30
+  dnsPolicy: ClusterFirst
+  serviceAccountName: default
+  nodeName: aks-spzone2-18318859-vmss000000
+  securityContext:
+    runAsUser: 65534
+    runAsGroup: 65534
+    runAsNonRoot: true
+    fsGroup: 65534
+    fsGroupChangePolicy: Always
+    seccompProfile:
+      type: RuntimeDefault
+  schedulerName: default-scheduler
+  tolerations:
+    - key: CriticalAddonsOnly
+      operator: Equal
+      value: 'true'
+      effect: NoSchedule
+    - key: node.kubernetes.io/not-ready
+      operator: Exists
+      effect: NoExecute
+      tolerationSeconds: 300
+    - key: node.kubernetes.io/unreachable
+      operator: Exists
+      effect: NoExecute
+      tolerationSeconds: 300
+    - key: node.kubernetes.io/memory-pressure
+      operator: Exists
+      effect: NoSchedule
+  priority: 0
+  enableServiceLinks: true
+  preemptionPolicy: PreemptLowerPriority

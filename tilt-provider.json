@@ -1,0 +1,10 @@
+{
+  "plugin_name": "osm-prune",
+  "context": ".",
+  "image": "velero/osm-prune",
+  "live_reload_deps": [
+    "internal",
+    "main.go"
+  ],
+  "go_main": "."
+}
