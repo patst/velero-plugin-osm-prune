@@ -12,9 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM golang:1.17-buster AS build
+FROM golang:1.19-buster AS build
 ENV GOPROXY=https://proxy.golang.org
-WORKDIR /go/src/github.com/vmware-tanzu/velero-plugin-osm-prune
+WORKDIR /go/src/github.com/patst/velero-plugin-osm-prune
 COPY . .
 RUN CGO_ENABLED=0 go build -o /go/bin/velero-plugin-osm-prune .
 

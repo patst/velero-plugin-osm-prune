@@ -1,6 +1,6 @@
 module github.com/patst/velero-plugin-osm-prune
 
-go 1.17
+go 1.19
 
 require (
 	github.com/pkg/errors v0.9.1

@@ -1,6 +1,7 @@
 _output
-velero-plugin-example
-
+velero-plugin-osm-prune
+.idea/
+*.iml
 .go
 
 _tiltbuild
