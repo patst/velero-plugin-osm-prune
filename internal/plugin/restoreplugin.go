@@ -50,7 +50,7 @@ func (p *RestorePlugin) AppliesTo() (velero.ResourceSelector, error) {
 // Execute allows the RestorePlugin to perform arbitrary logic with the item being restored,
 // in this case, setting a custom annotation on the item being restored.
 func (p *RestorePlugin) Execute(input *velero.RestoreItemActionExecuteInput) (*velero.RestoreItemActionExecuteOutput, error) {
-	p.log.Info("Executing OSM-Prune plugin for Restore %s", input.Restore.Name)
+	p.log.Infof("Executing OSM-Prune plugin for Restore %s", input.Restore.Name)
 
 	metadata, err := meta.Accessor(input.Item)
 	if err != nil {
@@ -59,7 +59,7 @@ func (p *RestorePlugin) Execute(input *velero.RestoreItemActionExecuteInput) (*v
 
 	pod := new(v1.Pod)
 	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(input.Item.UnstructuredContent(), pod); err != nil {
-		p.log.Errorf("Error converting item to pod schema")
+		p.log.Error("Error converting item to pod schema", err)
 		return &velero.RestoreItemActionExecuteOutput{}, errors.WithStack(err)
 	}
 
@@ -75,7 +75,7 @@ func (p *RestorePlugin) Execute(input *velero.RestoreItemActionExecuteInput) (*v
 		if pod.Spec.InitContainers != nil {
 			for idx, c := range pod.Spec.InitContainers {
 				if c.Name == "osm-init" {
-					p.log.Info("Removed osm-init container from pod %s", pod.Name)
+					p.log.Infof("Removed osm-init container from pod %s", pod.Name)
 					pod.Spec.InitContainers = removeIndexFromSlice(pod.Spec.InitContainers, idx)
 				}
 			}
@@ -88,6 +88,14 @@ func (p *RestorePlugin) Execute(input *velero.RestoreItemActionExecuteInput) (*v
 				if c.Name == "envoy" {
 					p.log.Infof("Removed envoy container from pod %s", pod.Name)
 					pod.Spec.Containers = removeIndexFromSlice(pod.Spec.Containers, idx)
+				}
+			}
+			// remove the envoy volume
+			// .spec.volumes[name=envoy-bootstrap-config-volume]
+			for idx, v := range pod.Spec.Volumes {
+				if v.Name == "envoy-bootstrap-config-volume" {
+					p.log.Infof("Removed envoy-bootstrap-config-volume from pod %s", pod.Name)
+					pod.Spec.Volumes = append(pod.Spec.Volumes[:idx], pod.Spec.Volumes[idx+1:]...)
 				}
 			}
 		}
